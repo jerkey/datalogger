@@ -34,9 +34,79 @@ void setup() {
   }
 }
 
+// TODO: flush and reopen file regularly
+
 void loop() {
-  // make a string for assembling the data to log:
-  String dataString = "";
+  String logString = ""; // make a string for assembling the data to log:
+
+  if (Serial.available()) {
+    uint8_t inByte = Serial.read();
+    switch (packetProgress) {
+      case 0:
+        packetProgress = (inByte == 0x55) ? 1 : 0; // we're looking for 0xAA now
+        break;
+      case 1:
+        packetProgress = (inByte == 0xAA) ? 2 : 0; // we're gonna grab packetlength next
+        break;
+      case 2:
+        packetLength = inByte;
+        packetProgress = 3;
+        break;
+      case 3:
+        packetProgress = (inByte == 0x25) ? 4 : 0; // 0x25 means address_bms
+        break;
+      case 4:
+        packetProgress = 5; // i don't know what that byte is so we skip it
+        break;
+      case 5:
+        packetProgress = (inByte == 0x31) ? 6 : 0; // we need the packet aimed at bmsdata[0x62]
+        break;
+      case 6:
+        remainingcapacity = inByte;
+        packetProgress += 1;
+        break;
+      case 7:
+        remainingcapacity += inByte << 8;
+        packetProgress += 1;
+        break;
+      case 8:
+        remainingpercent = inByte;
+        packetProgress += 1;
+        break;
+      case 9:
+        remainingpercent += inByte << 8;
+        packetProgress += 1;
+        break;
+      case 10:
+        current = inByte;
+        packetProgress += 1;
+        break;
+      case 11:
+        current += inByte << 8;
+        packetProgress += 1;
+        break;
+      case 12:
+        voltage = inByte;
+        packetProgress += 1;
+        break;
+      case 13:
+        voltage += inByte << 8;
+        packetProgress += 1;
+        break;
+      case 14:
+        temperature[0] = inByte;
+        packetProgress += 1;
+        break;
+      case 15:
+        temperature[1] = inByte;
+        packetProgress += 1;
+        break;
+      case 16:
+        lastBMSPacket = millis(); // store the time we got bms data
+        packetProgress = 0; // start looking for a new packet
+        break;
+    }
+  } // if (Serial.available())
 
   for (int analogPin = 0; analogPin < 3; analogPin++) {
     int sensor = analogRead(analogPin);
