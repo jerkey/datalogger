@@ -20,17 +20,30 @@ int16_t current; //offset 0x66-67 - negative = charging; /100 = Ampere
 uint16_t voltage; //offset 0x68-69 /10 = Volt
 uint8_t temperature[2]; //offset 0x6A-0x6B -20 = °C
 
+#define USBSERIAL // if we're using an ATMEGA32U4 board with native USB
+#ifdef USBSERIAL
+#define M365Serial Serial1
+#define Console Serial
+#elif
+#define M365Serial Serial
+#define Console Serial
+#endif
 
 void setup() {
-  Serial.begin(115200); //while (!Serial); // wait for serial port to connect. Needed for native USB port only
+#ifdef USBSERIAL
+  Console.begin(115200); // native CDC USB serial
+  while (!Console); // wait for serial port to connect. Needed for native USB port only
+#endif
 
-  Serial.print("Initializing SD card...");
+  M365Serial.begin(115200);
+
+  Console.print("Initializing SD card...");
 
   if (!SD.begin(chipSelect)) { // see if the card is present and can be initialized:
-    Serial.println("Card failed, or not present");
+    Console.println("Card failed, or not present");
     //while (1); // don't do anything more:
   } else {
-    Serial.println("card initialized.");
+    Console.println("card initialized.");
   }
 }
 
