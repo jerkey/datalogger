@@ -18,16 +18,23 @@ uint32_t lastStatusPrint = 0; // when was the last time we printed our status
 uint32_t lastFilesystemFlush = 0; // when was the last time we flushed filesystem
 #define INTERVAL_FILESYSTEMFLUSH 1000 // how often to flush filesystem
 
+#define address_ble 0x20 //actively sent data by BLE Module with gas/brake & mode values
+#define address_x1 0x21 //actively sent data by ?BLE? with status like led on/off, normal/ecomode...
+#define address_esc 0x23 //sent by motor controller with speed and other data
+#define address_bms_request 0x22 //used by apps to read data from bms
+#define address_bms 0x25 //data from bms sent with this address (only passive if requested via address_bms_request)
 uint16_t BMSPacketsCollected = 0; // how many BMS packets we've picked up ever
 uint16_t REQPacketsCollected = 0; // how many BMS Request packets we've picked up ever
 uint16_t ESCPacketsCollected = 0; // how many ESC packets we've picked up ever
 uint16_t BLEPacketsCollected = 0; // how many BLE packets we've picked up ever
 int8_t packetProgress = 0; // how far along in a decoded packet are we
+int8_t packetAddress = 0; // which type of packet is it?
 uint8_t packetLength = 0; // received packet length
 uint16_t remainingcapacity; //offset 0x62-0x63
 uint16_t remainingpercent; //offset 0x64-0x65
 int16_t current; //offset 0x66-67 - negative = charging; /100 = Ampere
 uint16_t voltage; //offset 0x68-69 /10 = Volt
+uint16_t speed; // uint16_t realspeed = ((int16_t)speed<=-10000?(uint16_t)((int32_t)(int16_t)speed+(int32_t)65536):(int16_t)abs((int16_t)speed))
 uint8_t temperature[2]; //offset 0x6A-0x6B -20 = °C
 
 #define USBSERIAL // if we're using an ATMEGA32U4 board with native USB
@@ -94,6 +101,7 @@ void handleM365Serial() {
     uint8_t inByte = M365Serial.read();
     switch (packetProgress) {
       case 0:
+        packetAddress = 0; // clear the address field
         packetProgress = (inByte == 0x55) ? 1 : 0; // we're looking for 0xAA now
         break;
       case 1:
@@ -104,72 +112,106 @@ void handleM365Serial() {
         packetProgress = 3;
         break;
       case 3:
-        packetProgress = (inByte == 0x25) ? 4 : 0; // 0x25 means address_bms
-        if (inByte == 0x25) BMSPacketsCollected++;
-        if (inByte == 0x22) REQPacketsCollected++;
-        if (inByte == 0x23) ESCPacketsCollected++;
-        if (inByte == 0x20) BLEPacketsCollected++;
+        packetProgress = 0; // restart unless it turns out one of the addresses is found
+        packetAddress = inByte;
+        if (packetAddress == address_bms) {
+          BMSPacketsCollected++;
+          packetProgress = 4;
+        }
+        if (packetAddress == address_bms_request) {
+          REQPacketsCollected++;
+          packetProgress = 0; // we're not interested in these
+        }
+        if (packetAddress == address_esc) {
+          ESCPacketsCollected++;
+          packetProgress = 4;
+        }
+        if (packetAddress == address_ble) {
+          BLEPacketsCollected++;
+          packetProgress = 0; // we're not interested in these
+        }
         break;
       case 4:
         packetProgress = 5; // i don't know what that byte is so we skip it
         break;
       case 5:
-        packetProgress = (inByte == 0x31) ? 6 : 0; // we need the packet aimed at bmsdata[0x62]
+        packetProgress = 0; // restart unless the following
+        if (packetAddress == address_bms) {
+          Console.print("BMS:0x");
+          Console.println(inByte,HEX);
+          if (inByte == 0x31) {packetProgress = 6; }// the packet aimed at bmsdata[0x62]  }
+          if (inByte == 0x30) {M365Serial.read(); M365Serial.read(); packetProgress = 6;} // take up two bytes since we're used to 0x31 here
+        }
+        if (packetAddress == address_esc) {
+          if (inByte != 0xB0) { } // Console.print("ESC:0x"); Console.println(inByte,HEX); }
+          else { packetProgress = 6; }// the packet aimed at escdata[0x160]
+        }
         break;
       case 6:
-        remainingcapacity = inByte;
+        if (packetAddress == address_bms) remainingcapacity = inByte;
         packetProgress += 1;
         break;
       case 7:
-        remainingcapacity += inByte << 8;
+        if (packetAddress == address_bms) remainingcapacity += (uint16_t)inByte << 8;
         packetProgress += 1;
         break;
       case 8:
-        remainingpercent = inByte;
+        if (packetAddress == address_bms) remainingpercent = inByte;
         packetProgress += 1;
         break;
       case 9:
-        remainingpercent += inByte << 8;
+        if (packetAddress == address_bms) remainingpercent += (uint16_t)inByte << 8;
         packetProgress += 1;
         break;
       case 10:
-        current = inByte;
+        if (packetAddress == address_bms) current = inByte;
         packetProgress += 1;
         break;
       case 11:
-        current += inByte << 8;
+        if (packetAddress == address_bms) current += (uint16_t)inByte << 8;
         packetProgress += 1;
         break;
       case 12:
-        voltage = inByte;
+        if (packetAddress == address_bms) voltage = inByte;
         packetProgress += 1;
         break;
       case 13:
-        voltage += inByte << 8;
+        if (packetAddress == address_bms) voltage += (uint16_t)inByte << 8;
         packetProgress += 1;
         break;
       case 14:
-        temperature[0] = inByte;
+        if (packetAddress == address_bms) temperature[0] = inByte;
         packetProgress += 1;
         break;
       case 15:
-        temperature[1] = inByte;
+        if (packetAddress == address_bms) temperature[1] = inByte;
         packetProgress += 1;
         break;
       case 16:
-        lastBMSPacket = millis(); // store the time we got bms data
-        packetProgress = 0; // start looking for a new packet
+        if (packetAddress == address_bms) {
+          lastBMSPacket = millis(); // store the time we got bms data
+          packetProgress = 0; // start looking for a new packet
+        } else if (packetAddress == address_esc) {
+          speed = inByte; // lower byte of speed
+          packetProgress = 17;
+        }
         break;
+      case 17:
+        if (packetAddress == address_esc) {
+          speed += (uint16_t)inByte << 8;
+          packetProgress = 0; // we're done
+        }
     }
   } // if (M365Serial.available())
-} // handleM365Serial1()
+} // handleM365Serial()
 
 void printStatus() {
   Console.print("BMS:"+String(BMSPacketsCollected));
   Console.print(" REQ:"+String(REQPacketsCollected));
   Console.print(" ESC:"+String(ESCPacketsCollected));
   Console.print(" BLE:"+String(BLEPacketsCollected));
-  Console.print("\tlastBMSPacket: "+String(millis() - lastBMSPacket));
+  Console.print("\tlastBMS: "+String(millis() - lastBMSPacket));
+  Console.print("\tspeed: "+String((int16_t)speed));
   Console.print("\tVolt: "+String(voltage));
   Console.print("\tAmps: "+String(current));
   Console.print("\tBatt: "+String(remainingpercent)+"%\n");
