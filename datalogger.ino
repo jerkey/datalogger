@@ -11,7 +11,17 @@
 
 const int chipSelect = 4;
 
+uint32_t lastLogEntry = 0; // when was the last time we saved a log entry
 uint32_t lastBMSPacket = 0; // when was the last time we got a BMS data
+uint32_t lastStatusPrint = 0; // when was the last time we printed our status
+#define INTERVAL_STATUSPRINT 1000 // how often to print our status
+uint32_t lastFilesystemFlush = 0; // when was the last time we flushed filesystem
+#define INTERVAL_FILESYSTEMFLUSH 1000 // how often to flush filesystem
+
+uint16_t BMSPacketsCollected = 0; // how many BMS packets we've picked up ever
+uint16_t REQPacketsCollected = 0; // how many BMS Request packets we've picked up ever
+uint16_t ESCPacketsCollected = 0; // how many ESC packets we've picked up ever
+uint16_t BLEPacketsCollected = 0; // how many BLE packets we've picked up ever
 int8_t packetProgress = 0; // how far along in a decoded packet are we
 uint8_t packetLength = 0; // received packet length
 uint16_t remainingcapacity; //offset 0x62-0x63
@@ -52,8 +62,36 @@ void setup() {
 void loop() {
   String logString = ""; // make a string for assembling the data to log:
 
-  if (Serial.available()) {
-    uint8_t inByte = Serial.read();
+  handleM365Serial(); // if bytes are available, deal with them
+
+  for (int analogPin = 0; analogPin < 3; analogPin++) {
+    int sensor = analogRead(analogPin);
+    logString += String(sensor);
+    if (analogPin < 2) {
+      logString += ",";
+    }
+  }
+
+  // open the file. note that only one file can be open at a time,
+  // so you have to close this one before opening another.
+  File dataFile = SD.open("datalog.txt", FILE_WRITE);
+
+  // if the file is available, write to it:
+  if (dataFile) {
+    dataFile.println(logString);
+    dataFile.close();
+    // print to the serial port too:
+    Console.println(logString);
+  }
+  if (millis() - lastStatusPrint > INTERVAL_STATUSPRINT) {
+    printStatus();
+    lastStatusPrint = millis();
+  }
+}
+
+void handleM365Serial() {
+  if (M365Serial.available()) {
+    uint8_t inByte = M365Serial.read();
     switch (packetProgress) {
       case 0:
         packetProgress = (inByte == 0x55) ? 1 : 0; // we're looking for 0xAA now
@@ -67,6 +105,10 @@ void loop() {
         break;
       case 3:
         packetProgress = (inByte == 0x25) ? 4 : 0; // 0x25 means address_bms
+        if (inByte == 0x25) BMSPacketsCollected++;
+        if (inByte == 0x22) REQPacketsCollected++;
+        if (inByte == 0x23) ESCPacketsCollected++;
+        if (inByte == 0x20) BLEPacketsCollected++;
         break;
       case 4:
         packetProgress = 5; // i don't know what that byte is so we skip it
@@ -119,38 +161,16 @@ void loop() {
         packetProgress = 0; // start looking for a new packet
         break;
     }
-  } // if (Serial.available())
+  } // if (M365Serial.available())
+} // handleM365Serial1()
 
-  for (int analogPin = 0; analogPin < 3; analogPin++) {
-    int sensor = analogRead(analogPin);
-    logString += String(sensor);
-    if (analogPin < 2) {
-      logString += ",";
-    }
-  }
-
-  // open the file. note that only one file can be open at a time,
-  // so you have to close this one before opening another.
-  File dataFile = SD.open("datalog.txt", FILE_WRITE);
-
-  // if the file is available, write to it:
-  if (dataFile) {
-    dataFile.println(logString);
-    dataFile.close();
-    // print to the serial port too:
-    Serial.println(logString);
-  }
-  // if the file isn't open, pop up an error:
-  else {
-    Serial.println("error opening datalog.txt");
-  }
+void printStatus() {
+  Console.print("BMS:"+String(BMSPacketsCollected));
+  Console.print(" REQ:"+String(REQPacketsCollected));
+  Console.print(" ESC:"+String(ESCPacketsCollected));
+  Console.print(" BLE:"+String(BLEPacketsCollected));
+  Console.print("\tlastBMSPacket: "+String(millis() - lastBMSPacket));
+  Console.print("\tVolt: "+String(voltage));
+  Console.print("\tAmps: "+String(current));
+  Console.print("\tBatt: "+String(remainingpercent)+"%\n");
 }
-
-
-
-
-
-
-
-
-
