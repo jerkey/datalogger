@@ -36,6 +36,8 @@ int16_t current; //offset 0x66-67 - negative = charging; /100 = Ampere
 uint16_t voltage; //offset 0x68-69 /10 = Volt
 uint16_t speed; // uint16_t realspeed = ((int16_t)speed<=-10000?(uint16_t)((int32_t)(int16_t)speed+(int32_t)65536):(int16_t)abs((int16_t)speed))
 uint8_t temperature[2]; //offset 0x6A-0x6B -20 = °C
+uint8_t throttle = 0; // received in address_ble packets
+uint8_t brake = 0; // received in address_ble packets
 
 #define USBSERIAL // if we're using an ATMEGA32U4 board with native USB
 #ifdef USBSERIAL
@@ -128,17 +130,18 @@ void handleM365Serial() {
         }
         if (packetAddress == address_ble) {
           BLEPacketsCollected++;
-          packetProgress = 0; // we're not interested in these
+          packetProgress = 4;
         }
         break;
       case 4:
         packetProgress = 5; // i don't know what that byte is so we skip it
+        if (packetAddress == address_ble) if ((inByte & 254) != 64) packetProgress = 0;
         break;
       case 5:
         packetProgress = 0; // restart unless the following
         if (packetAddress == address_bms) {
           Console.print("BMS:0x");
-          Console.println(inByte,HEX);
+          Console.print(inByte,HEX);
           if (inByte == 0x31) {packetProgress = 6; }// the packet aimed at bmsdata[0x62]  }
           if (inByte == 0x30) {M365Serial.read(); M365Serial.read(); packetProgress = 6;} // take up two bytes since we're used to 0x31 here
         }
@@ -146,16 +149,22 @@ void handleM365Serial() {
           if (inByte != 0xB0) { } // Console.print("ESC:0x"); Console.println(inByte,HEX); }
           else { packetProgress = 6; }// the packet aimed at escdata[0x160]
         }
+        if (packetAddress == address_ble) packetProgress = 6;
         break;
       case 6:
         if (packetAddress == address_bms) remainingcapacity = inByte;
         packetProgress += 1;
         break;
       case 7:
+        if (packetAddress == address_ble) throttle = inByte;
         if (packetAddress == address_bms) remainingcapacity += (uint16_t)inByte << 8;
         packetProgress += 1;
         break;
       case 8:
+        if (packetAddress == address_ble) {
+          brake = inByte;
+          packetProgress = 0;
+        }
         if (packetAddress == address_bms) remainingpercent = inByte;
         packetProgress += 1;
         break;
@@ -213,6 +222,8 @@ void printStatus() {
   Console.print("\tlastBMS: "+String(millis() - lastBMSPacket));
   Console.print("\tspeed: "+String((int16_t)speed));
   Console.print("\tVolt: "+String(voltage));
+  Console.print("\tThrot: "+String(throttle));
+  Console.print("\tBrake: "+String(brake));
   Console.print("\tAmps: "+String(current));
   Console.print("\tBatt: "+String(remainingpercent)+"%\n");
 }
