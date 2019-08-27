@@ -23,6 +23,8 @@ uint32_t lastLogWrite = 0; // when was the last time we wrote log
 #define INTERVAL_LOGWRITE 1000 // how often to write log
 uint32_t lastDiskAttempt = 0; // when was the last time we attempted to open the disk
 #define INTERVAL_DISKATTEMPT 2000 // how often to attempt
+#define VALIDVOLTMIN 2500 // for detecting bad packets
+#define VALIDVOLTMAX 4500 // for detecting bad packets
 
 #define address_ble 0x20 //actively sent data by BLE Module with gas/brake & mode values
 #define address_x1 0x21 //actively sent data by ?BLE? with status like led on/off, normal/ecomode...
@@ -33,6 +35,7 @@ uint16_t BMSPacketsCollected = 0; // how many BMS packets we've picked up ever
 uint16_t REQPacketsCollected = 0; // how many BMS Request packets we've picked up ever
 uint16_t ESCPacketsCollected = 0; // how many ESC packets we've picked up ever
 uint16_t BLEPacketsCollected = 0; // how many BLE packets we've picked up ever
+uint16_t X1PacketsCollected  = 0; // how many X1 packets we've picked up ever
 int8_t packetProgress = 0; // how far along in a decoded packet are we
 int8_t packetAddress = 0; // which type of packet is it?
 uint8_t packetLength = 0; // received packet length
@@ -44,6 +47,8 @@ uint16_t speed; // uint16_t realspeed = ((int16_t)speed<=-10000?(uint16_t)((int3
 uint8_t temperature[2]; //offset 0x6A-0x6B -20 = °C
 uint8_t throttle = 0; // received in address_ble packets
 uint8_t brake = 0; // received in address_ble packets
+//                               len  src  req  off  len  0 bytes follow (we're not sending throttle/brake)
+uint8_t ESCreq[15] = {0x55,0xAA,0x04,0x20,0x61,0xB0,0x11,0x00,0xFF,0xFF};
 
 #define USBSERIAL // if we're using an ATMEGA32U4 board with native USB
 #ifdef USBSERIAL
@@ -62,6 +67,12 @@ void setup() {
 
   M365Serial.begin(115200);
 
+  // calculate CRC for ESC request (we only need to do this once)
+  uint16_t sum = 0;
+  for(int i = 2; i < 8; i++) sum += ESCreq[i];
+  sum = sum ^ 0xFFFF;
+  ESCreq[9] = sum >> 8;
+  ESCreq[8] = sum & 0xFF;
 }
 
 uint8_t diskOpen = 0;
@@ -79,11 +90,14 @@ void loop() {
         diskOpen = 1;
         lastLogWrite = millis(); // time starts now
         dataFile = SD.open("datalog.txt", FILE_WRITE);
+        dataFile.println("time, voltage, current, speed, throttle, brake, remainingpercent");
       } else { Console.print("x"); }//Card failed, or not present"); }
     }
-    if ((millis() - lastLogWrite > INTERVAL_LOGWRITE) && (diskOpen == 1)) {
+    if ((millis() - lastLogWrite > INTERVAL_LOGWRITE) && (diskOpen == 1) && (millis() - lastBMSPacket < 750) && (remainingpercent <= 100) && (voltage > VALIDVOLTMIN) && (voltage < VALIDVOLTMAX)) {
       lastLogWrite += INTERVAL_LOGWRITE;
       logString = String(millis()/1000)+", "+String(voltage)+", ";
+      logString += String(current)+", "+String(speed)+", ";
+      logString += String(throttle)+", "+String(brake)+", "+String(remainingpercent);
       dataFile.println(logString);
       Console.println(logString);
       dataFile.flush();
@@ -97,6 +111,24 @@ void loop() {
   if (millis() - lastStatusPrint > INTERVAL_STATUSPRINT) {
     printStatus();
     lastStatusPrint = millis();
+  }
+}
+/*    request data from esc:   (Read 0x7c * 2 words)
+      PREAMBLE  LEN  Adr  HZ   Off  LEN  bytes: throttle brake
+      0x55 0xaa 0x06 0x20 0x61 0x7c 0x02 0x02   0x28     0x27 CRC1 CRC2
+      0x55 0xaa 0x06 0x20 0x61 0xb0 0x11 0x00   CRC1 CRC2
+
+      request data from bms: (Read Serial @ Offset 0x10, 0x12? words)
+      PREAMBLE    LEN   Adr   HZ    Off   Len   CRC1  CRC2
+      0x55  0xAA  0x03  0x22  0x01  0x10  0x12  0xB7  0xFF */
+void sendM365Request() { // 55AA032201313276FF is what m365tools causes to be sent
+  static uint8_t lastSent = 0; // rotate requests
+  if (lastSent == 0) { // send BMS request
+    M365Serial.write("\x55\xAA\x03\x22\x01\x31\x32\x76\xFF"); // BMS request
+    lastSent = 1;
+  } else {
+    M365Serial.write(ESCreq,10);
+    lastSent = 0;
   }
 }
 
@@ -126,6 +158,15 @@ void handleM365Serial() {
           REQPacketsCollected++;
           packetProgress = 0; // we're not interested in these
         }
+        if (packetAddress == address_x1) {
+          X1PacketsCollected++;
+          packetProgress = 0; // we're not interested in these
+          delay(1); // avoid finishing early
+          while (M365Serial.available()) {
+            M365Serial.read();
+          } // flush receive buffer
+          if (packetLength == 2) sendM365Request(); // let's see what this does
+        }
         if (packetAddress == address_esc) {
           ESCPacketsCollected++;
           packetProgress = 4;
@@ -137,7 +178,14 @@ void handleM365Serial() {
         break;
       case 4:
         packetProgress = 5; // i don't know what that byte is so we skip it
-        if (packetAddress == address_ble) if ((inByte & 254) != 0x64) packetProgress = 0;
+        if (packetAddress == address_ble) {
+          if ((inByte & 254) != 0x64) { // if inByte not 64 or 65
+            //Console.print("BLE:"+String(inByte,HEX));
+            //while (M365Serial.available()) Console.print(":"+String(M365Serial.read(),HEX));
+            //Console.println();
+            packetProgress = 0;
+          }
+        }
         break;
       case 5:
         packetProgress = 0; // restart unless the following
@@ -147,7 +195,12 @@ void handleM365Serial() {
           if (inByte == 0x30) {M365Serial.read(); M365Serial.read(); packetProgress = 6;} // take up two bytes since we're used to 0x31 here
         }
         if (packetAddress == address_esc) {
-          if (inByte != 0xB0) { } // Console.print("ESC:0x"+String(inByte,HEX)); }
+          if (inByte != 0xB0) {
+            Console.print("ESC:"+String(inByte,HEX));
+            delay(1);
+            while (M365Serial.available()) Console.print(":"+String(M365Serial.read(),HEX));
+            Console.println();
+          }
           else { packetProgress = 6; }// the packet aimed at escdata[0x160]
         }
         if (packetAddress == address_ble) packetProgress = 6;
@@ -216,10 +269,12 @@ void handleM365Serial() {
 } // handleM365Serial()
 
 void printStatus() {
+  //for(int i = 0; i < 10; i++) Console.print(String(ESCreq[i],HEX)+":");
   Console.print("BMS:"+String(BMSPacketsCollected));
   Console.print(" REQ:"+String(REQPacketsCollected));
   Console.print(" ESC:"+String(ESCPacketsCollected));
   Console.print(" BLE:"+String(BLEPacketsCollected));
+  Console.print(" X1:"+String(X1PacketsCollected));
   Console.print("\tlastBMS: "+String(millis() - lastBMSPacket));
   Console.print("\tspeed: "+String((int16_t)speed));
   Console.print("\tVolt: "+String(voltage));
