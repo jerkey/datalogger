@@ -1,15 +1,17 @@
 /* SD card datalogger
  * SD card attached to SPI bus as follows:
- ** MOSI - pin 11
- ** MISO - pin 12
- ** CLK - pin 13
- ** CS - pin 4 (for MKRZero SD: SDCARD_SS_PIN)
+          ATMEGA328  32U4
+ ** MOSI - pin 11    16
+ ** MISO - pin 12    14
+ ** CLK  - pin 13    15
+ ** CS   - pin 4     10 (or whatever you want, set chipSelect
  */
+#define POWER_PIN 2 // high when power supply is on (shutdown disk if this goes low)
 
 #include <SPI.h>
 #include <SD.h>
 
-const int chipSelect = 4;
+const int chipSelect = 10; // this is the SS/CS pin we choose to use
 
 uint32_t lastLogEntry = 0; // when was the last time we saved a log entry
 uint32_t lastBMSPacket = 0; // when was the last time we got a BMS data
@@ -17,6 +19,10 @@ uint32_t lastStatusPrint = 0; // when was the last time we printed our status
 #define INTERVAL_STATUSPRINT 1000 // how often to print our status
 uint32_t lastFilesystemFlush = 0; // when was the last time we flushed filesystem
 #define INTERVAL_FILESYSTEMFLUSH 1000 // how often to flush filesystem
+uint32_t lastLogWrite = 0; // when was the last time we wrote log
+#define INTERVAL_LOGWRITE 1000 // how often to write log
+uint32_t lastDiskAttempt = 0; // when was the last time we attempted to open the disk
+#define INTERVAL_DISKATTEMPT 2000 // how often to attempt
 
 #define address_ble 0x20 //actively sent data by BLE Module with gas/brake & mode values
 #define address_x1 0x21 //actively sent data by ?BLE? with status like led on/off, normal/ecomode...
@@ -56,42 +62,38 @@ void setup() {
 
   M365Serial.begin(115200);
 
-  Console.print("Initializing SD card...");
-
-  if (!SD.begin(chipSelect)) { // see if the card is present and can be initialized:
-    Console.println("Card failed, or not present");
-    //while (1); // don't do anything more:
-  } else {
-    Console.println("card initialized.");
-  }
 }
 
-// TODO: flush and reopen file regularly
+uint8_t diskOpen = 0;
+String logString = ""; // make a string for assembling the data to log:
+File dataFile;
 
 void loop() {
-  String logString = ""; // make a string for assembling the data to log:
-
   handleM365Serial(); // if bytes are available, deal with them
 
-  for (int analogPin = 0; analogPin < 3; analogPin++) {
-    int sensor = analogRead(analogPin);
-    logString += String(sensor);
-    if (analogPin < 2) {
-      logString += ",";
+  if (digitalRead(POWER_PIN)) {
+    if ((diskOpen == 0) && (millis() - lastDiskAttempt > INTERVAL_DISKATTEMPT)){ // Console.print("Initializing SD card...");
+      lastDiskAttempt = millis();
+      if (SD.begin(chipSelect)) { // see if the card is present and can be initialized:
+        Console.println("card initialized.");
+        diskOpen = 1;
+        lastLogWrite = millis(); // time starts now
+        dataFile = SD.open("datalog.txt", FILE_WRITE);
+      } else { Console.print("x"); }//Card failed, or not present"); }
     }
-  }
-
-  // open the file. note that only one file can be open at a time,
-  // so you have to close this one before opening another.
-  File dataFile = SD.open("datalog.txt", FILE_WRITE);
-
-  // if the file is available, write to it:
-  if (dataFile) {
-    dataFile.println(logString);
+    if ((millis() - lastLogWrite > INTERVAL_LOGWRITE) && (diskOpen == 1)) {
+      lastLogWrite += INTERVAL_LOGWRITE;
+      logString = String(millis()/1000)+", "+String(voltage)+", ";
+      dataFile.println(logString);
+      Console.println(logString);
+      dataFile.flush();
+    }
+  } else if (diskOpen == 1) { // digitalRead(POWER_PIN) is false, so power down disk access ASAP
     dataFile.close();
-    // print to the serial port too:
-    Console.println(logString);
+    Console.print("dataFile.close()");
+    diskOpen = 0;
   }
+
   if (millis() - lastStatusPrint > INTERVAL_STATUSPRINT) {
     printStatus();
     lastStatusPrint = millis();
@@ -135,18 +137,17 @@ void handleM365Serial() {
         break;
       case 4:
         packetProgress = 5; // i don't know what that byte is so we skip it
-        if (packetAddress == address_ble) if ((inByte & 254) != 64) packetProgress = 0;
+        if (packetAddress == address_ble) if ((inByte & 254) != 0x64) packetProgress = 0;
         break;
       case 5:
         packetProgress = 0; // restart unless the following
         if (packetAddress == address_bms) {
-          Console.print("BMS:0x");
-          Console.print(inByte,HEX);
+          //Console.print("BMS:0x"+String(inByte,HEX));
           if (inByte == 0x31) {packetProgress = 6; }// the packet aimed at bmsdata[0x62]  }
           if (inByte == 0x30) {M365Serial.read(); M365Serial.read(); packetProgress = 6;} // take up two bytes since we're used to 0x31 here
         }
         if (packetAddress == address_esc) {
-          if (inByte != 0xB0) { } // Console.print("ESC:0x"); Console.println(inByte,HEX); }
+          if (inByte != 0xB0) { } // Console.print("ESC:0x"+String(inByte,HEX)); }
           else { packetProgress = 6; }// the packet aimed at escdata[0x160]
         }
         if (packetAddress == address_ble) packetProgress = 6;
