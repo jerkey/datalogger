@@ -57,7 +57,7 @@ uint8_t brake = 0; // received in address_ble packets
 void setup() {
 #ifdef USBSERIAL
   Console.begin(115200); // native CDC USB serial
-  while (!Console); // wait for serial port to connect. Needed for native USB port only
+  // while (!Console); // wait for serial port to connect. Needed for native USB port only
 #endif
 
   M365Serial.begin(115200);
