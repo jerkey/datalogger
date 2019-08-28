@@ -96,7 +96,7 @@ void loop() {
     if ((millis() - lastLogWrite > INTERVAL_LOGWRITE) && (diskOpen == 1) && (millis() - lastBMSPacket < 750) && (remainingpercent <= 100) && (voltage > VALIDVOLTMIN) && (voltage < VALIDVOLTMAX)) {
       lastLogWrite += INTERVAL_LOGWRITE;
       logString = String(millis()/1000)+", "+String(voltage)+", ";
-      logString += String(current)+", "+String(speed)+", ";
+      logString += String(current)+", "+String((int16_t)speed)+", ";
       logString += String(throttle)+", "+String(brake)+", "+String(remainingpercent);
       dataFile.println(logString);
       Console.println(logString);
