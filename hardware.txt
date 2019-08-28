@@ -1,0 +1,6 @@
+10μF capacitor from Vcc to GND
+diode from scooter 5V to Vcc
+10KΩ resistor from scooter 5V to pin 2 (to detect scooter power)
+50KΩ resistor from pin 2 to ground (needed to default to off)
+diode from TX to scooter serial bus
+1KΩ resistor from RX to scooter serial bus (needed?)
