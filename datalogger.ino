@@ -84,14 +84,17 @@ void loop() {
 
   if (digitalRead(POWER_PIN)) {
     if ((diskOpen == 0) && (millis() - lastDiskAttempt > INTERVAL_DISKATTEMPT)){ // Console.print("Initializing SD card...");
-      lastDiskAttempt = millis();
+      Console.print("[");
       if (SD.begin(chipSelect)) { // see if the card is present and can be initialized:
-        Console.println("card initialized.");
+        Console.println("card initialized]");
         diskOpen = 1;
         lastLogWrite = millis(); // time starts now
         dataFile = SD.open("datalog.txt", FILE_WRITE);
         dataFile.println("time, voltage, current, speed, throttle, brake, remainingpercent");
-      } else { Console.print("x"); }//Card failed, or not present"); }
+      } else {
+        lastDiskAttempt = millis();
+        Console.print("]");
+      }//Card failed, or not present"); }
     }
     if ((millis() - lastLogWrite > INTERVAL_LOGWRITE) && (diskOpen == 1) && (millis() - lastBMSPacket < 750) && (remainingpercent <= 100) && (voltage > VALIDVOLTMIN) && (voltage < VALIDVOLTMAX)) {
       lastLogWrite += INTERVAL_LOGWRITE;
