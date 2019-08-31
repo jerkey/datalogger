@@ -21,8 +21,8 @@ uint32_t lastFilesystemFlush = 0; // when was the last time we flushed filesyste
 #define INTERVAL_FILESYSTEMFLUSH 1000 // how often to flush filesystem
 uint32_t lastLogWrite = 0; // when was the last time we wrote log
 #define INTERVAL_LOGWRITE 1000 // how often to write log
-uint32_t lastDiskAttempt = 0; // when was the last time we attempted to open the disk
-#define INTERVAL_DISKATTEMPT 2000 // how often to attempt
+uint32_t nextDiskAttempt = 0; // when is the next time we will attempt to open the disk
+#define INTERVAL_DISKATTEMPT 5000 // how often to attempt to open disk
 #define VALIDVOLTMIN 2500 // for detecting bad packets
 #define VALIDVOLTMAX 4500 // for detecting bad packets
 
@@ -83,7 +83,7 @@ void loop() {
   handleM365Serial(); // if bytes are available, deal with them
 
   if (digitalRead(POWER_PIN)) {
-    if ((diskOpen == 0) && (millis() - lastDiskAttempt > INTERVAL_DISKATTEMPT)){ // Console.print("Initializing SD card...");
+    if ((diskOpen == 0) && (millis() > nextDiskAttempt)){ // Console.print("Initializing SD card...");
       Console.print("[");
       if (SD.begin(chipSelect)) { // see if the card is present and can be initialized:
         Console.println("card initialized]");
@@ -92,7 +92,7 @@ void loop() {
         dataFile = SD.open("datalog.txt", FILE_WRITE);
         dataFile.println("time, voltage, current, speed, throttle, brake, remainingpercent");
       } else {
-        lastDiskAttempt = millis();
+        nextDiskAttempt = millis() + INTERVAL_DISKATTEMPT;
         Console.print("]");
       }//Card failed, or not present"); }
     }
