@@ -27,13 +27,13 @@ uint32_t lastFilesystemFlush = 0; // when was the last time we flushed filesyste
 #define INTERVAL_FILESYSTEMFLUSH 1000 // how often to flush filesystem
 uint32_t lastLogWrite = 0; // when was the last time we wrote log
 #define INTERVAL_LOGWRITE 1000 // how often to write log
-uint32_t lastDiskAttempt = 0; // when was the last time we attempted to open the disk
-#define INTERVAL_DISKATTEMPT 2000 // how often to attempt
+uint32_t nextDiskAttempt = 0; // when is the next time we will attempt to open the disk
+#define INTERVAL_DISKATTEMPT 5000 // how often to attempt to open disk
 
 int16_t current; // 100 = 1 Ampere (negative = charging)
 uint16_t voltage; // 100 = 1 volt
-uint8_t throttle = 0; // received in address_ble packets
-uint8_t brake = 0; // received in address_ble packets
+uint16_t throttle = 0;
+uint16_t brake = 0;
 
 uint16_t analogAdds = 0; // how many times we've oversampled into the below values
 int32_t currentAdder = 0;
@@ -41,7 +41,7 @@ uint32_t voltageAdder = 0;
 uint32_t throttleAdder = 0;
 uint32_t brakeAdder = 0;
 uint32_t encoderCount = 0; // counts number of motor pulses since last cleared
-uint16_t speed;
+uint32_t speed;
 
 #define Console Serial
 
@@ -60,7 +60,7 @@ void loop() {
   updateSpeedAndAnalogs(); // calculate speed from interrupt-driven counter and divide analog oversamplers to get precise values
 
   if (digitalRead(POWER_PIN)) {
-    if ((diskOpen == 0) && (millis() - lastDiskAttempt > INTERVAL_DISKATTEMPT)){ // Console.print("Initializing SD card...");
+    if ((diskOpen == 0) && (millis() > nextDiskAttempt)){ // Console.print("Initializing SD card...");
       Console.print("[");
       if (SD.begin(chipSelect)) { // see if the card is present and can be initialized:
         Console.println("card initialized]");
@@ -69,7 +69,7 @@ void loop() {
         dataFile = SD.open("analogs.txt", FILE_WRITE);
         dataFile.println("time, voltage, current, speed, throttle, brake");
       } else {
-        lastDiskAttempt = millis();
+        nextDiskAttempt = millis() + INTERVAL_DISKATTEMPT;
         Console.print("]");
       }//Card failed, or not present"); }
     }
