@@ -11,7 +11,11 @@
 #define BRAKE_PIN A1 // 
 #define VOLTAGE_PIN A2 // 
 #define CURRENT_PIN A3 // 
-#define ENCODER_PIN 7 // triggers an interrupt to count movement
+#define ENCODER_PIN 7 // triggers an interrupt to count movement (see attachInterrupt())
+#define FILENAME "boosted.txt" // filename of log file
+#define SPEED_COEFF 134.897 // this results in meters per hour
+#define CURRENT_COEFF -12.3456790123
+#define VOLT_COEFF 6.2462380301
 
 #include <SPI.h>
 #include <SD.h>
@@ -66,7 +70,7 @@ void loop() {
         Console.println("card initialized]");
         diskOpen = 1;
         lastLogWrite = millis(); // time starts now
-        dataFile = SD.open("analogs.txt", FILE_WRITE);
+        dataFile = SD.open(FILENAME, FILE_WRITE);
         dataFile.println("time, voltage, current, speed, throttle, brake");
       } else {
         nextDiskAttempt = millis() + INTERVAL_DISKATTEMPT;
@@ -102,15 +106,15 @@ void updateSpeedAndAnalogs() {
   uint32_t interval = millis() - lastSpeedCalc;
   if (interval > INTERVAL_SPEEDCALC) {
     lastSpeedCalc = millis();
-    speed = (encoderCount * 1000) / interval; // speed is pulses per second
+    speed = (encoderCount * (uint32_t)(1000.0 * SPEED_COEFF)) / interval; // aiming for meters per hour
     encoderCount = 0; // reset the counter
     updateAnalogs(); // divide analog oversamplers to get precise values
   }
 }
 
 void readAnalogs() {
-  voltageAdder += analogRead(VOLTAGE_PIN);
-  currentAdder += analogRead(CURRENT_PIN) - 512; // current sensor centers at Vcc/2 for 0 current
+  voltageAdder += VOLT_COEFF * analogRead(VOLTAGE_PIN);
+  currentAdder += CURRENT_COEFF * (analogRead(CURRENT_PIN) - 512); // current sensor centers at Vcc/2 for 0 current
   throttleAdder += analogRead(THROTTLE_PIN);
   brakeAdder += analogRead(BRAKE_PIN);
   analogAdds++;
