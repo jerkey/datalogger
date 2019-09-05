@@ -169,11 +169,12 @@ void handleEs4Serial() {
           ESCPacketsCollected++;
           delay(1); // avoid finishing early
           while (es4Serial.available()) {
+            delay(1); // this prevents floaters (incomplete flush)
             es4Serial.read();
           } // flush receive buffer
           sendes4Request(); // now we inject our BMS request packet
         }
-        if (sender==NINEBOT_ADDR_BMS1 && receiver==NINEBOT_ADDR_APP2 && command==1 && cmdArg==0x31) {
+        if (sender==NINEBOT_ADDR_BMS1 && receiver==NINEBOT_ADDR_APP2 && command==4 && cmdArg==0x31) {
           es4Serial.read(); // number of bytes coming (not incl. checksum) is 0x0A
           remainingcapacity[0] = es4Serial.read();
           remainingcapacity[0] += (uint16_t)es4Serial.read() << 8;
@@ -186,7 +187,7 @@ void handleEs4Serial() {
           BMS1PacketsCollected++;
           lastBMSPacket = millis(); // store the time we got bms data
         }
-        if (sender==NINEBOT_ADDR_BMS2 && receiver==NINEBOT_ADDR_APP2 && command==1 && cmdArg==0x31) {
+        if (sender==NINEBOT_ADDR_BMS2 && receiver==NINEBOT_ADDR_APP2 && command==4 && cmdArg==0x31) {
           es4Serial.read(); // number of bytes coming (not incl. checksum) is 0x0A
           remainingcapacity[1] = es4Serial.read();
           remainingcapacity[1] += (uint16_t)es4Serial.read() << 8;

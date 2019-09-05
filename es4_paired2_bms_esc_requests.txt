@@ -4,10 +4,10 @@ BLE sending throttle to ESC:
                        Throttle Brake
 5AA5 07 21 20 64 00 06 29       2A     00000701 F2FE
 ESC responding to above message (after which we can insert a request):
+
 5AA5 06 20 21 64 00 015E00002300        D2FE
 bFlags, bBattLevelBars, bHeadlightLevel, bBeeps, bSpeed, bErrorCode
 01      5E              00               00      23      00
-
 
 bms1:
 
@@ -22,6 +22,7 @@ bms1:
 
 5AA5 01 3E 22 01 20 06	77FF Manufacture date
 
+  //uint8_t BMS1Request[] = {0x5A,0xA5,0x01,0x3E,0x22,0x01,0x31,0x0A,0x62,0xFF};
 5AA5 01 3E 22 01 31 0A	62FF NINEBOT_ESC_COMMAND_REGREAD NINEBOT_BMS_REG_REMAINING_CAPACITY_mAh ten bytes
 5AA5 0A 22 3E 04 31 26104F000500410F2C2D	2DFE
 0A bytes starting at 31
