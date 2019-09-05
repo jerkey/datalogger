@@ -1,8 +1,8 @@
 0x5A, 0xA5, payloadLen, sndr, recv, cmd, cmdArg
 
 BLE sending throttle to ESC:
-5AA5 07 21 20 64 00 06 29 2A     00000701 F2FE
-                       Th Brake
+                       Throttle Brake
+5AA5 07 21 20 64 00 06 29       2A     00000701 F2FE
 ESC responding to above message (after which we can insert a request):
 5AA5 06 20 21 64 00 015E00002300        D2FE
 bFlags, bBattLevelBars, bHeadlightLevel, bBeeps, bSpeed, bErrorCode

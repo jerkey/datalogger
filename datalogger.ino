@@ -25,17 +25,21 @@ uint32_t lastLogWrite = 0; // when was the last time we wrote log
 uint32_t nextDiskAttempt = 0; // when is the next time we will attempt to open the disk
 #define INTERVAL_DISKATTEMPT 5000 // how often to attempt to open disk
 
-#define NINEBOT_ADDR_ESC = 0x20
-#define NINEBOT_ADDR_BLE = 0x21
-#define NINEBOT_ADDR_BMS1 = 0x22
-#define NINEBOT_ADDR_BMS2 = 0x23
+#define NINEBOT_ADDR_ESC 0x20
+#define NINEBOT_ADDR_BLE 0x21
+#define NINEBOT_ADDR_BMS1 0x22
+#define NINEBOT_ADDR_BMS2 0x23
+#define NINEBOT_ADDR_APP2 0x3E
 uint16_t ESCPacketsCollected = 0;
 uint16_t BLEPacketsCollected = 0;
 uint16_t BMS1PacketsCollected = 0;
 uint16_t BMS2PacketsCollected  = 0;
 int8_t packetProgress = 0; // how far along in a decoded packet are we
-int8_t packetAddress = 0; // which type of packet is it?
-uint8_t packetLength = 0; // received packet length
+int8_t sender = 0; // who is sending this packet
+int8_t receiver = 0; // who is it aimed at
+int8_t command = 0;
+int8_t cmdArg = 0;
+uint8_t payloadLen = 0; // received packet length
 uint16_t remainingcapacity[2];
 uint16_t remainingpercent[2];
 int16_t current[2];
@@ -122,149 +126,94 @@ void handleEs4Serial() {
     uint8_t inByte = es4Serial.read();
     switch (packetProgress) {
       case 0:
-        packetAddress = 0; // clear the address field
-        packetProgress = (inByte == 0x55) ? 1 : 0; // we're looking for 0xAA now
+        packetProgress = (inByte == 0x5A) ? 1 : 0; // we're looking for 0xA5 now
         break;
       case 1:
-        packetProgress = (inByte == 0xAA) ? 2 : 0; // we're gonna grab packetlength next
+        packetProgress = (inByte == 0xA5) ? 2 : 0; // we're gonna grab packetlength next
         break;
       case 2:
-        packetLength = inByte;
+        payloadLen = inByte;
         packetProgress = 3;
         break;
       case 3:
         packetProgress = 0; // restart unless it turns out one of the addresses is found
-        packetAddress = inByte;
-        if (packetAddress == address_bms) {
-          BMSPacketsCollected++;
-          packetProgress = 4;
+        sender = inByte;
+        if (sender == NINEBOT_ADDR_BMS1) { packetProgress = 4; }
+        if (sender == NINEBOT_ADDR_BMS2) { packetProgress = 4; }
+        if (sender == NINEBOT_ADDR_ESC) { packetProgress = 4; }
+        if (sender == NINEBOT_ADDR_BLE) { packetProgress = 4; }
+        break;
+      case 4:
+        receiver = inByte;
+        packetProgress = 5;
+        break;
+      case 5:
+        command = inByte;
+        packetProgress = 6;
+        break;
+      case 6:
+        cmdArg = inByte;
+        packetProgress = 7;
+        break;
+      case 7:
+        packetProgress = 0; // restart collection cycle after the following
+        if (sender==NINEBOT_ADDR_BLE && receiver==NINEBOT_ADDR_ESC && command==0x64 && cmdArg==0) {
+          es4Serial.read();
+          throttle = es4Serial.read();
+          brake = es4Serial.read();
+          BLEPacketsCollected++;
         }
-        if (packetAddress == address_bms_request) {
-          REQPacketsCollected++;
-          packetProgress = 0; // we're not interested in these
-        }
-        if (packetAddress == address_x1) {
-          X1PacketsCollected++;
-          packetProgress = 0; // we're not interested in these
+        if (sender==NINEBOT_ADDR_ESC && receiver==NINEBOT_ADDR_BLE && command==0x64 && cmdArg==0) {
+          for (int i=0; i<4; i++) es4Serial.read();
+          speed = es4Serial.read();
+          ESCPacketsCollected++;
           delay(1); // avoid finishing early
           while (es4Serial.available()) {
             es4Serial.read();
           } // flush receive buffer
-          if (packetLength == 2) sendes4Request(); // let's see what this does
+          sendes4Request(); // now we inject our BMS request packet
         }
-        if (packetAddress == address_esc) {
-          ESCPacketsCollected++;
-          packetProgress = 4;
-        }
-        if (packetAddress == address_ble) {
-          BLEPacketsCollected++;
-          packetProgress = 4;
-        }
-        break;
-      case 4:
-        packetProgress = 5; // i don't know what that byte is so we skip it
-        if (packetAddress == address_ble) {
-          if ((inByte & 254) != 0x64) { // if inByte not 64 or 65
-            //Console.print("BLE:"+String(inByte,HEX));
-            //while (es4Serial.available()) Console.print(":"+String(es4Serial.read(),HEX));
-            //Console.println();
-            packetProgress = 0;
-          }
-        }
-        break;
-      case 5:
-        packetProgress = 0; // restart unless the following
-        if (packetAddress == address_bms) {
-          //Console.print("BMS:0x"+String(inByte,HEX));
-          if (inByte == 0x31) {packetProgress = 6; }// the packet aimed at bmsdata[0x62]  }
-          if (inByte == 0x30) {es4Serial.read(); es4Serial.read(); packetProgress = 6;} // take up two bytes since we're used to 0x31 here
-        }
-        if (packetAddress == address_esc) {
-          if (inByte != 0xB0) {
-            Console.print("ESC:"+String(inByte,HEX));
-            delay(1);
-            while (es4Serial.available()) Console.print(":"+String(es4Serial.read(),HEX));
-            Console.println();
-          }
-          else { packetProgress = 6; }// the packet aimed at escdata[0x160]
-        }
-        if (packetAddress == address_ble) packetProgress = 6;
-        break;
-      case 6:
-        if (packetAddress == address_bms) remainingcapacity = inByte;
-        packetProgress += 1;
-        break;
-      case 7:
-        if (packetAddress == address_ble) throttle = inByte;
-        if (packetAddress == address_bms) remainingcapacity += (uint16_t)inByte << 8;
-        packetProgress += 1;
-        break;
-      case 8:
-        if (packetAddress == address_ble) {
-          brake = inByte;
-          packetProgress = 0;
-        }
-        if (packetAddress == address_bms) remainingpercent = inByte;
-        packetProgress += 1;
-        break;
-      case 9:
-        if (packetAddress == address_bms) remainingpercent += (uint16_t)inByte << 8;
-        packetProgress += 1;
-        break;
-      case 10:
-        if (packetAddress == address_bms) current = inByte;
-        packetProgress += 1;
-        break;
-      case 11:
-        if (packetAddress == address_bms) current += (uint16_t)inByte << 8;
-        packetProgress += 1;
-        break;
-      case 12:
-        if (packetAddress == address_bms) voltage = inByte;
-        packetProgress += 1;
-        break;
-      case 13:
-        if (packetAddress == address_bms) voltage += (uint16_t)inByte << 8;
-        packetProgress += 1;
-        break;
-      case 14:
-        if (packetAddress == address_bms) temperature[0] = inByte;
-        packetProgress += 1;
-        break;
-      case 15:
-        if (packetAddress == address_bms) temperature[1] = inByte;
-        packetProgress += 1;
-        break;
-      case 16:
-        if (packetAddress == address_bms) {
+        if (sender==NINEBOT_ADDR_BMS1 && receiver==NINEBOT_ADDR_APP2 && command==1 && cmdArg==0x31) {
+          es4Serial.read(); // number of bytes coming (not incl. checksum) is 0x0A
+          remainingcapacity[0] = es4Serial.read();
+          remainingcapacity[0] += (uint16_t)es4Serial.read() << 8;
+          remainingpercent[0] = es4Serial.read();
+          remainingpercent[0] += (uint16_t)es4Serial.read() << 8;
+          current[0] = es4Serial.read();
+          current[0] += (uint16_t)es4Serial.read() << 8;
+          voltage[0] = es4Serial.read();
+          voltage[0] += (uint16_t)es4Serial.read() << 8;
+          BMS1PacketsCollected++;
           lastBMSPacket = millis(); // store the time we got bms data
-          packetProgress = 0; // start looking for a new packet
-        } else if (packetAddress == address_esc) {
-          speed = inByte; // lower byte of speed
-          packetProgress = 17;
+        }
+        if (sender==NINEBOT_ADDR_BMS2 && receiver==NINEBOT_ADDR_APP2 && command==1 && cmdArg==0x31) {
+          es4Serial.read(); // number of bytes coming (not incl. checksum) is 0x0A
+          remainingcapacity[1] = es4Serial.read();
+          remainingcapacity[1] += (uint16_t)es4Serial.read() << 8;
+          remainingpercent[1] = es4Serial.read();
+          remainingpercent[1] += (uint16_t)es4Serial.read() << 8;
+          current[1] = es4Serial.read();
+          current[1] += (uint16_t)es4Serial.read() << 8;
+          voltage[1] = es4Serial.read();
+          voltage[1] += (uint16_t)es4Serial.read() << 8;
+          BMS2PacketsCollected++;
+          lastBMSPacket = millis(); // store the time we got bms data
         }
         break;
-      case 17:
-        if (packetAddress == address_esc) {
-          speed += (uint16_t)inByte << 8;
-          packetProgress = 0; // we're done
-        }
     }
   } // if (es4Serial.available())
 } // handleEs4Serial()
 
 void printStatus() {
-  //for(int i = 0; i < 10; i++) Console.print(String(ESCreq[i],HEX)+":");
-  Console.print("BMS:"+String(BMSPacketsCollected));
-  Console.print(" REQ:"+String(REQPacketsCollected));
+  Console.print("BMS1:"+String(BMS1PacketsCollected));
+  Console.print(" BMS2:"+String(BMS2PacketsCollected));
   Console.print(" ESC:"+String(ESCPacketsCollected));
   Console.print(" BLE:"+String(BLEPacketsCollected));
-  Console.print(" X1:"+String(X1PacketsCollected));
   Console.print("\tlastBMS: "+String(millis() - lastBMSPacket));
-  Console.print("\tspeed: "+String((int16_t)speed));
-  Console.print("\tVolt: "+String(voltage));
+  Console.print("\tVolt: "+String(voltage[0])+"/"+String(voltage[1]));
+  Console.print("\tAmps: "+String(current[0])+"/"+String(current[1]));
+  Console.print("\tspeed: "+String(speed));
   Console.print("\tThrot: "+String(throttle));
   Console.print("\tBrake: "+String(brake));
-  Console.print("\tAmps: "+String(current));
-  Console.print("\tBatt: "+String(remainingpercent)+"%\n");
+  Console.print("\tBatt: "+String(remainingpercent[0])+"%/"+String(remainingpercent[1])+"%\n");
 }
