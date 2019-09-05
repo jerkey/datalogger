@@ -25,6 +25,8 @@ uint32_t lastLogWrite = 0; // when was the last time we wrote log
 uint32_t nextDiskAttempt = 0; // when is the next time we will attempt to open the disk
 #define INTERVAL_DISKATTEMPT 5000 // how often to attempt to open disk
 
+uint16_t readFailures = 0; // how many times we've received -1 from es4Serial.read()
+
 #define NINEBOT_ADDR_ESC 0x20
 #define NINEBOT_ADDR_BLE 0x21
 #define NINEBOT_ADDR_BMS1 0x22
@@ -60,7 +62,6 @@ uint8_t brake = 0; // received in NINEBOT_ADDR_BLE packets
 void setup() {
 #ifdef USBSERIAL
   Console.begin(115200); // native CDC USB serial
-  // while (!Console); // wait for serial port to connect. Needed for native USB port only
 #endif
 
   es4Serial.begin(115200);
@@ -87,7 +88,8 @@ void loop() {
         Console.print("]");
       }//Card failed, or not present"); }
     }
-    if ((millis() - lastLogWrite > INTERVAL_LOGWRITE) && (diskOpen == 1) && (millis() - lastBMSPacket < 750)) {
+    if ((millis() - lastLogWrite > INTERVAL_LOGWRITE) && (diskOpen == 1) &&
+        (millis() - lastBMSPacket < 750) && dataIsValid()) { // only if data is valid
       lastLogWrite += INTERVAL_LOGWRITE;
       logString = String(millis()/1000)+", "+String(voltage[0])+", ";
       logString += String(voltage[1])+", "+String(current[0])+", ";
@@ -104,7 +106,7 @@ void loop() {
     diskOpen = 0;
   }
 
-  if (millis() - lastStatusPrint > INTERVAL_STATUSPRINT) {
+  if (millis() - lastStatusPrint > INTERVAL_STATUSPRINT && dataIsValid()) {
     printStatus();
     lastStatusPrint = millis();
   }
@@ -123,7 +125,7 @@ void sendes4Request() {
 
 void handleEs4Serial() {
   if (es4Serial.available()) {
-    uint8_t inByte = es4Serial.read();
+    uint8_t inByte = readEs4Serial();
     switch (packetProgress) {
       case 0:
         packetProgress = (inByte == 0x5A) ? 1 : 0; // we're looking for 0xA5 now
@@ -158,45 +160,45 @@ void handleEs4Serial() {
       case 7:
         packetProgress = 0; // restart collection cycle after the following
         if (sender==NINEBOT_ADDR_BLE && receiver==NINEBOT_ADDR_ESC && command==0x64 && cmdArg==0) {
-          es4Serial.read();
-          throttle = es4Serial.read();
-          brake = es4Serial.read();
+          //why??? readEs4Serial(); // eat the 06 that says how many bytes follow before checksum
+          throttle = readEs4Serial();
+          brake = readEs4Serial();
           BLEPacketsCollected++;
         }
         if (sender==NINEBOT_ADDR_ESC && receiver==NINEBOT_ADDR_BLE && command==0x64 && cmdArg==0) {
-          for (int i=0; i<4; i++) es4Serial.read();
-          speed = es4Serial.read();
+          for (int i=0; i<3; i++) readEs4Serial(); // i thought it should be a 4 but 3 is right, why???
+          speed = readEs4Serial();
           ESCPacketsCollected++;
           delay(1); // avoid finishing early
           while (es4Serial.available()) {
             delay(1); // this prevents floaters (incomplete flush)
-            es4Serial.read();
+            readEs4Serial();
           } // flush receive buffer
           sendes4Request(); // now we inject our BMS request packet
         }
         if (sender==NINEBOT_ADDR_BMS1 && receiver==NINEBOT_ADDR_APP2 && command==4 && cmdArg==0x31) {
-          es4Serial.read(); // number of bytes coming (not incl. checksum) is 0x0A
-          remainingcapacity[0] = es4Serial.read();
-          remainingcapacity[0] += (uint16_t)es4Serial.read() << 8;
-          remainingpercent[0] = es4Serial.read();
-          remainingpercent[0] += (uint16_t)es4Serial.read() << 8;
-          current[0] = es4Serial.read();
-          current[0] += (uint16_t)es4Serial.read() << 8;
-          voltage[0] = es4Serial.read();
-          voltage[0] += (uint16_t)es4Serial.read() << 8;
+          readEs4Serial(); // number of bytes coming (not incl. checksum) is 0x0A
+          //why??? remainingcapacity[0] = readEs4Serial();
+          //why??? remainingcapacity[0] += (uint16_t)readEs4Serial() << 8;
+          remainingpercent[0] = readEs4Serial();
+          remainingpercent[0] += (uint16_t)readEs4Serial() << 8;
+          current[0] = readEs4Serial();
+          current[0] += (uint16_t)readEs4Serial() << 8;
+          voltage[0] = readEs4Serial();
+          voltage[0] += (uint16_t)readEs4Serial() << 8;
           BMS1PacketsCollected++;
           lastBMSPacket = millis(); // store the time we got bms data
         }
         if (sender==NINEBOT_ADDR_BMS2 && receiver==NINEBOT_ADDR_APP2 && command==4 && cmdArg==0x31) {
-          es4Serial.read(); // number of bytes coming (not incl. checksum) is 0x0A
-          remainingcapacity[1] = es4Serial.read();
-          remainingcapacity[1] += (uint16_t)es4Serial.read() << 8;
-          remainingpercent[1] = es4Serial.read();
-          remainingpercent[1] += (uint16_t)es4Serial.read() << 8;
-          current[1] = es4Serial.read();
-          current[1] += (uint16_t)es4Serial.read() << 8;
-          voltage[1] = es4Serial.read();
-          voltage[1] += (uint16_t)es4Serial.read() << 8;
+          readEs4Serial(); // number of bytes coming (not incl. checksum) is 0x0A
+          //why??? remainingcapacity[1] = readEs4Serial();
+          //why??? remainingcapacity[1] += (uint16_t)readEs4Serial() << 8;
+          remainingpercent[1] = readEs4Serial();
+          remainingpercent[1] += (uint16_t)readEs4Serial() << 8;
+          current[1] = readEs4Serial();
+          current[1] += (uint16_t)readEs4Serial() << 8;
+          voltage[1] = readEs4Serial();
+          voltage[1] += (uint16_t)readEs4Serial() << 8;
           BMS2PacketsCollected++;
           lastBMSPacket = millis(); // store the time we got bms data
         }
@@ -205,7 +207,39 @@ void handleEs4Serial() {
   } // if (es4Serial.available())
 } // handleEs4Serial()
 
+uint8_t readEs4Serial() {
+  uint16_t unavailableDelays = 0;
+  while (es4Serial.available() == 0) { // wait up to 200ms for serial data
+    delay(1);
+    if (++unavailableDelays > 200) {
+      readFailures++;
+      break;
+    }
+  }
+  int readResult = es4Serial.read();
+  if (readResult == -1) {
+    readFailures++;
+    return 0x69;
+  } else {
+    return (uint8_t)readResult;
+  }
+}
+
+bool dataIsValid() {
+  if (voltage[0] < 25 || voltage[0] > 4500 ) return false;
+  if (voltage[1] < 25 || voltage[1] > 4500 ) return false;
+  if (current[0] < -3000 || current[0] > 4000 ) return false;
+  if (current[1] < -3000 || current[1] > 4000 ) return false;
+  if (speed < 0 || speed > 90 ) return false;
+  if (throttle < 30 || throttle > 220 ) return false;
+  if (brake < 30 || brake > 220 ) return false;
+  if (remainingpercent[0] < 0 || remainingpercent[0] > 100 ) return false;
+  if (remainingpercent[1] < 0 || remainingpercent[1] > 100 ) return false;
+  return true;
+}
+
 void printStatus() {
+  if (readFailures) Console.print("readFailures: "+String(readFailures)+" ");
   Console.print("BMS1:"+String(BMS1PacketsCollected));
   Console.print(" BMS2:"+String(BMS2PacketsCollected));
   Console.print(" ESC:"+String(ESCPacketsCollected));
