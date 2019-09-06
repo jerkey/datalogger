@@ -36,11 +36,11 @@ uint16_t ESCPacketsCollected = 0;
 uint16_t BLEPacketsCollected = 0;
 uint16_t BMS1PacketsCollected = 0;
 uint16_t BMS2PacketsCollected  = 0;
-int8_t packetProgress = 0; // how far along in a decoded packet are we
-int8_t sender = 0; // who is sending this packet
-int8_t receiver = 0; // who is it aimed at
-int8_t command = 0;
-int8_t cmdArg = 0;
+uint8_t packetProgress = 0; // how far along in a decoded packet are we
+uint8_t sender = 0; // who is sending this packet
+uint8_t receiver = 0; // who is it aimed at
+uint8_t command = 0;
+uint8_t cmdArg = 0;
 uint8_t payloadLen = 0; // received packet length
 uint16_t remainingcapacity[2];
 uint16_t remainingpercent[2];
@@ -106,7 +106,8 @@ void loop() {
     diskOpen = 0;
   }
 
-  if (millis() - lastStatusPrint > INTERVAL_STATUSPRINT && dataIsValid()) {
+  if ( millis() - lastStatusPrint > INTERVAL_STATUSPRINT
+      && (dataIsValid() || millis() - lastStatusPrint > (INTERVAL_STATUSPRINT * 2)) ) { // wait for good data
     printStatus();
     lastStatusPrint = millis();
   }
