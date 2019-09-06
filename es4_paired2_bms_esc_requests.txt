@@ -113,22 +113,26 @@ esc:
 
 5AA5 01 3E 20 01 B0 20	CFFE	Error code and 32 total bytes:
 5AA5 20 20 3E 04 B0
-0000        Error code
-0000        Alarm code
-000A        ESC status (boolean state word)
-4F4D        Volume of battery 1 and battery 2. Lower 8 for #1, higher for #2. 0-100%
-4E00        Battery level, 0-100% (0x4e = 78%)
-0000        Current speed, 100m/h (1=0.1km/h)
-0000        Average speed, 100m/h (1=0.1km/h)
-A7420400    Total mileage, m
-0000        Single mileage, m*10
-0A00        Single operation time
-F000        Frame temperature, 0.1C (0xF0 = 24°C)
-0000        Current speed limit value, with the lower 8b for current and higher 8b for full range, 0.1km/h
-0000        Scooter power, unit:W
-0000        Previous alarm code (for delay reset)
-0000        Predicted remaining mileage, km*100 (unit:10m)                                                5AA5 01 3E 20 01 B2 02	EBFE	ESC status (boolean state word)
+B0 0000        Error code
+B1 0000        Alarm code
+B2 000A        ESC status (boolean state word)
+B3 4F4D        Volume of battery 1 and battery 2. Lower 8 for #1, higher for #2. 0-100%
+B4 4E00        Battery level, 0-100% (0x4e = 78%)
+B5 0000        Current speed, 100m/h (1=0.1km/h)
+B6 0000        Average speed, 100m/h (1=0.1km/h)
+B7 A7420400    Total mileage, m
+B9 0000        Single mileage, m*10
+BA 0A00        Single operation time
+BB F000        Frame temperature, 0.1C (0xF0 = 24°C)
+BC 0000        Current speed limit value, with the lower 8b for current and higher 8b for full range, 0.1km/h
+BD 0000        Scooter power, unit:W
+BE 0000        Previous alarm code (for delay reset)
+BF 0000        Predicted remaining mileage, km*100 (unit:10m)                                                5AA5 01 3E 20 01 B2 02	EBFE	ESC status (boolean state word)
 ????        checksum
+
+5AA5 01 3E 20 01 B0 20	CFFE	Error code and 32 total bytes compared with:
+5AA5 01 3E 20 01 B5 02	E8FE	Current speed, 100m/h (1=0.1km/h) 2 bytes
+\x5A\xA5\x01\x3E\x20\x01\xB5\x02\xE8\xFE
 
 5AA5 02 20 3E 04 3E F000	6DFE
 5AA5 02 20 3E 04 69 6325	AAFE
@@ -142,6 +146,7 @@ F000        Frame temperature, 0.1C (0xF0 = 24°C)
 5AA5 04 20 3E 04 3A 0D000000	52FF
 5AA5 04 20 3E 04 3A 0E000000	51FF
 5AA5 04 20 3E 04 3A 0F000000	50FF
+
 5AA5 04 20 3E 04 3A 10000000	4FFF
 5AA5 04 20 3E 04 3A 11000000	4EFF
 5AA5 04 20 3E 04 3A 12000000	4DFF
@@ -152,6 +157,7 @@ F000        Frame temperature, 0.1C (0xF0 = 24°C)
 5AA5 04 20 3E 04 3A 17000000	48FF
 5AA5 04 20 3E 04 3A 18000000	47FF
 5AA5 04 20 3E 04 3A 19000000	46FF
+
 5AA5 04 20 3E 04 3A 47000000	18FF
 5AA5 04 20 3E 04 3A 48000000	17FF
 5AA5 04 20 3E 04 3A 49000000	16FF

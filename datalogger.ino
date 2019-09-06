@@ -46,7 +46,8 @@ uint16_t remainingcapacity[2];
 uint16_t remainingpercent[2];
 int16_t current[2];
 uint16_t voltage[2];
-uint8_t speed;
+int16_t speed;
+uint8_t speedBuf[2];
 uint8_t throttle = 0; // received in NINEBOT_ADDR_BLE packets
 uint8_t brake = 0; // received in NINEBOT_ADDR_BLE packets
 
@@ -113,13 +114,16 @@ void loop() {
   }
 }
 
-void sendes4Request() {
+void sendEs4Request() {
   static uint8_t lastSent = 0; // rotate requests
   if (lastSent == 0) { // send BMS1 request
     es4Serial.write("\x5A\xA5\x01\x3E\x22\x01\x31\x0A\x62\xFF"); // BMS1 request
     lastSent = 1;
-  } else { // send BMS2 request
+  } else if (lastSent == 1) { // send BMS2 request
     es4Serial.write("\x5A\xA5\x01\x3E\x23\x01\x31\x0A\x61\xFF"); // BMS2 request
+    lastSent = 2;
+  } else { // send ESC speed request
+    es4Serial.write("\x5A\xA5\x01\x3E\x20\x01\xB5\x02\xE8\xFE"); // ESC speed request
     lastSent = 0;
   }
 }
@@ -157,30 +161,37 @@ void handleEs4Serial() {
       case 6:
         cmdArg = inByte;
         packetProgress = 7;
+        if (sender==NINEBOT_ADDR_ESC && receiver==NINEBOT_ADDR_APP2 && command==4 && cmdArg==0xB5) {
+          es4Serial.readBytes(speedBuf,2); // first byte of speed was getting lost by case 7, readBytes may not be necessary
+          //Console.print(String(speedBuf[1],HEX)+":"+String(speedBuf[0],HEX)+";");
+          speed = speedBuf[0];
+          speed += (uint16_t)speedBuf[1] << 8;
+          //speed += (uint16_t)es4Serial.read() << 8; //readEs4Serial() << 8;
+          ESCPacketsCollected++; // this packet was the response to our ESC request in sendEs4Request()
+          packetProgress = 0;
+        }
         break;
       case 7:
         packetProgress = 0; // restart collection cycle after the following
         if (sender==NINEBOT_ADDR_BLE && receiver==NINEBOT_ADDR_ESC && command==0x64 && cmdArg==0) {
-          //why??? readEs4Serial(); // eat the 06 that says how many bytes follow before checksum
+          //this byte is getting lost before case 7 readEs4Serial(); // eat the 06 that says how many bytes follow before checksum
           throttle = readEs4Serial();
           brake = readEs4Serial();
           BLEPacketsCollected++;
         }
         if (sender==NINEBOT_ADDR_ESC && receiver==NINEBOT_ADDR_BLE && command==0x64 && cmdArg==0) {
           for (int i=0; i<3; i++) readEs4Serial(); // i thought it should be a 4 but 3 is right, why???
-          speed = readEs4Serial();
-          ESCPacketsCollected++;
           delay(1); // avoid finishing early
           while (es4Serial.available()) {
             delay(1); // this prevents floaters (incomplete flush)
             readEs4Serial();
           } // flush receive buffer
-          sendes4Request(); // now we inject our BMS request packet
+          sendEs4Request(); // now we inject our BMS1/BMS2/ESC speed request packet
         }
         if (sender==NINEBOT_ADDR_BMS1 && receiver==NINEBOT_ADDR_APP2 && command==4 && cmdArg==0x31) {
           readEs4Serial(); // number of bytes coming (not incl. checksum) is 0x0A
-          //why??? remainingcapacity[0] = readEs4Serial();
-          //why??? remainingcapacity[0] += (uint16_t)readEs4Serial() << 8;
+          //this byte is getting lost before case 7 remainingcapacity[0] = readEs4Serial();
+          //this byte is getting lost before case 7 remainingcapacity[0] += (uint16_t)readEs4Serial() << 8;
           remainingpercent[0] = readEs4Serial();
           remainingpercent[0] += (uint16_t)readEs4Serial() << 8;
           current[0] = readEs4Serial();
@@ -192,8 +203,8 @@ void handleEs4Serial() {
         }
         if (sender==NINEBOT_ADDR_BMS2 && receiver==NINEBOT_ADDR_APP2 && command==4 && cmdArg==0x31) {
           readEs4Serial(); // number of bytes coming (not incl. checksum) is 0x0A
-          //why??? remainingcapacity[1] = readEs4Serial();
-          //why??? remainingcapacity[1] += (uint16_t)readEs4Serial() << 8;
+          //this byte is getting lost before case 7 remainingcapacity[1] = readEs4Serial();
+          //this byte is getting lost before case 7 remainingcapacity[1] += (uint16_t)readEs4Serial() << 8;
           remainingpercent[1] = readEs4Serial();
           remainingpercent[1] += (uint16_t)readEs4Serial() << 8;
           current[1] = readEs4Serial();
@@ -231,7 +242,7 @@ bool dataIsValid() {
   if (voltage[1] < 25 || voltage[1] > 4500 ) return false;
   if (current[0] < -3000 || current[0] > 4000 ) return false;
   if (current[1] < -3000 || current[1] > 4000 ) return false;
-  if (speed < 0 || speed > 90 ) return false;
+  if (speed < -600 || speed > 600 ) return false;
   if (throttle < 30 || throttle > 220 ) return false;
   if (brake < 30 || brake > 220 ) return false;
   if (remainingpercent[0] < 0 || remainingpercent[0] > 100 ) return false;
@@ -248,7 +259,7 @@ void printStatus() {
   Console.print("\tlastBMS: "+String(millis() - lastBMSPacket));
   Console.print("\tVolt: "+String(voltage[0])+"/"+String(voltage[1]));
   Console.print("\tAmps: "+String(current[0])+"/"+String(current[1]));
-  Console.print("\tspeed: "+String(speed));
+  Console.print("\tspeed: "+String(speed));//+"/"+String(speed)+"="+String(speed,BIN));
   Console.print("\tThrot: "+String(throttle));
   Console.print("\tBrake: "+String(brake));
   Console.print("\tBatt: "+String(remainingpercent[0])+"%/"+String(remainingpercent[1])+"%\n");
