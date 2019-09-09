@@ -238,8 +238,8 @@ uint8_t readEs4Serial() {
 }
 
 bool dataIsValid() {
-  if (voltage[0] < 25 || voltage[0] > 4500 ) return false;
-  if (voltage[1] < 25 || voltage[1] > 4500 ) return false;
+  if (voltage[0] < 2500 || voltage[0] > 4500 ) return false;
+  if (voltage[1] < 2500 || voltage[1] > 4500 ) return false;
   if (current[0] < -3000 || current[0] > 4000 ) return false;
   if (current[1] < -3000 || current[1] > 4000 ) return false;
   if (speed < -600 || speed > 600 ) return false;
